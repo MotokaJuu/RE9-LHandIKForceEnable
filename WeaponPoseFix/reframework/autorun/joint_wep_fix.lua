@@ -262,24 +262,36 @@ end
 re.on_frame(function()
     for _, char in ipairs(characters) do
         if char.enabled and ensure_transform(char) then
-            -- 武器检测限流
+            -- 武器检测 (改为使用高效、准确的底层组件读取)
             if os.clock() - char._weapon_check_time > WEAPON_INTERVAL then
                 char._weapon_check_time = os.clock()
                 local detected = nil
-                local child = char._transform:call("get_Child")
-                while child do
-                    local cgo = child:call("get_GameObject")
-                    if cgo and cgo:call("get_DrawSelf") and cgo:call("get_Name"):sub(1,3) == "arm" then
-                        local pos = child:call("get_LocalPosition")
-                        if pos and math.abs(pos.x) < IN_HAND_THRESHOLD then
+                
+                local pe = char._go_ref:call("getComponent(System.Type)", sdk.typeof("app.PlayerEquipment"))
+                if pe then
+                    local ok_eid, eid = pcall(pe.get_field, pe, "<EquipWeaponID>k__BackingField")
+                    if ok_eid and eid then
+                        local ok_s, eid_str = pcall(eid.call, eid, "ToString()")
+                        if not ok_s or not eid_str then
+                            local ok_v, val = pcall(eid.get_field, eid, "value__")
+                            if ok_v then eid_str = tostring(val) end
+                        end
+                        if eid_str then
+                            eid_str = string.lower(eid_str)
                             for _, rule in ipairs(char.arm_weapon_map) do
-                                if cgo:call("get_Name"):sub(1, #rule.prefix) == rule.prefix then detected = rule.label; break end
+                                if string.sub(eid_str, 1, string.len(rule.prefix)) == rule.prefix then 
+                                    detected = rule.label
+                                    break 
+                                end
+                            end
+                            -- 如果该武器没有预设的Label名称，依然直接显示它的真实ID
+                            if not detected and string.sub(eid_str, 1, 3) == "arm" then
+                                detected = eid_str
                             end
                         end
                     end
-                    if detected then break end
-                    child = child:call("get_Next")
                 end
+                
                 char._detected_weapon = detected
                 WeaponPoseFix.active_weapon[char.name] = detected
             end
